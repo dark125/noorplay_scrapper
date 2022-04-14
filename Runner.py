@@ -5,7 +5,13 @@ import youtube_dl
 from platform import system
 from ffmpy import FFmpeg
 from subprocess import Popen, PIPE
-
+import random
+import time
+import json
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Cipher import AES
+from hashlib import sha1
+import base64
 class Runner:
     DOWNLOADS_PATH = getcwd() + path.sep + "Downloads"
     MP4DECRYPTOR_PATH = path.dirname(__file__) + path.sep + "mp4Decrypt"
@@ -13,6 +19,7 @@ class Runner:
         self.make_downloads_dir()
         self.get_decryptor_executable()
         self.player = NoorPlay()
+        self.HashToken()
         self.set_session()
         self.player.update_session_headers()
         self.login()
@@ -40,12 +47,39 @@ class Runner:
             except Exception as e:
                 print(f'[-] an error occurred while creating the directory.\n\terror: {e}')
         return False
-                
+
+    def HashToken(self):
+        timestamp = int(time.time())
+
+        deviceid = round(random.random() * 1e16)
+
+        o = {
+            'deviceid': str(deviceid),
+            'devicetype': "PC",
+            'deviceos': "WINDOWS",
+            'providerid': "noorplay",
+            'timestamp': timestamp
+        }
+
+        s = json.dumps(o, separators=(',', ':'))
+
+        key = b"btJ85rtEsEhyrE0t"
+        text = s.encode("utf-8")
+
+        #base64_key = base64.b64encode(key)
+        padtext=pad(text,16,style='pkcs7')
+
+        encryptor = AES.new(key, AES.MODE_ECB)
+        result = encryptor.encrypt(padtext)
+        token = base64.b64encode(result).decode("utf-8")
+        hash_ = sha1(s.encode('utf-8')).hexdigest()
+        return hash_,token
+        
+
     def set_session(self, update=False):
         session = self.player.set_session() if not update else None
         while not session:
-            hash = input("-> Please enter hash from website: ").strip()
-            token = input("-> Please enter the token from website: ").strip()
+            hash,token = self.HashToken()
             if not all([hash, token]):
                 print('[-] either auth url or token is empty.')
                 continue
@@ -169,7 +203,7 @@ class Runner:
                 print(f'[+] No {name} found in this file.')
             
         keys = self.player.get_drm_keys(selected['pssh'], video_id, package_info['package_id'], drm_token)[1]
-
+        print(keys)
         if keys is None or not keys[0]:
             print("[-] couldn't get the drm_keys from the website please change the blob file.")
             return None
