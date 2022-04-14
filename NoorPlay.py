@@ -4,7 +4,8 @@ from requests import Session
 from os import path
 from json import loads, dumps
 import atexit
-from pywidevine.decrypt.wvdecrypt import WvDecrypt
+from pywidevine.wvdecryptcustom import WvDecrypt
+from pywidevine.cdm import cdm, deviceconfig
 from base64 import b64encode
 from m3u8 import loads as m3U8_loads
 
@@ -502,34 +503,34 @@ class NoorPlay:
         video_id = str(video_id or '').strip()
         package_id = str(package_id or '').strip()
         drm_token = str(drm_token or '').strip()
-        
+
         if not all([pssh, video_id, package_id, drm_token]):
             print("[-] can't retrive keys using Null.")
             return None
         
         try:
-            license_url = "https://vdrm.mobiotics.com/prod/proxy/v1/license"
-            decryptor = WvDecrypt(pssh)
+            hders = {
+            'content-type': 'application/json',
+            'x-session': self.session_dict['session_vars']['verify']['access_token'],
+            'referer': 'https://www.noorplay.com/',
+            'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36'
+            }
+            license_url = "https://vdrm.mobiotics.com/prod/proxy/v1/license/widevine"
+            decryptor = WvDecrypt(init_data_b64=pssh, cert_data_b64=None, device=deviceconfig.device_android_generic)
             challenge = decryptor.get_challenge()
             
             request = b64encode(challenge)
-            resp = self.session.post(license_url, json={
-                'contentid': video_id,
-                'customdata': {
-                    'packageid': package_id,
-                    'drmtoken': drm_token
-                },
-                'drmscheme': "WIDEVINE",
-                'payload': request.decode(),
-                'providerid': 'noorplay'
-            }, allow_redirects=True, headers={
-                'content-type': 'application/json',
-                'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36',
-                "x-session": self.session_dict['session_vars']['verify']['access_token'],
-                'origin': 'https://www.noorplay.com',
-                "referer": "https://www.noorplay.com/"
-            })
-            
+            resp = self.session.post(license_url, headers=hders, 
+            json={
+            'payload': str(request, "utf-8" ),
+            'contentid': video_id,
+            'providerid': 'noorplay',
+            'drmscheme':'WIDEVINE',
+            'customdata':
+                {'packageid': package_id,
+                'drmtoken': drm_token
+                }
+                })
             if resp.status_code == 200:
                 resp = loads(resp.text)
                 license = resp['body']                
@@ -543,7 +544,7 @@ class NoorPlay:
                 print(f"[-] couldn't obtain drm keys from the server.\n\tresponse:{resp.text}")
         except Exception as e:
             print(f"[-] an error occurred while extracting widevine keys.\n\terror: {e}")
-            
+
         return None
     
 
